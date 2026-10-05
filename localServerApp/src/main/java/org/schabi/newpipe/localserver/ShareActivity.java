@@ -26,7 +26,8 @@ public class ShareActivity extends AppCompatActivity {
         // Ensure NewPipe is initialized
         try {
             NewPipe.init(new ServerDownloader());
-            org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(true);
+            // (upstream extractor now uses the visionOS InnerTube client for streams;
+            //  the old setFetchIosClient hook was removed upstream)
         } catch (Exception e) {
             // Already initialized or failed
         }

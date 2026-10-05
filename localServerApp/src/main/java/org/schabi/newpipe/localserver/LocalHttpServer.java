@@ -1579,17 +1579,13 @@ public class LocalHttpServer {
             if (directUrl != null) {
                 log("Proxying stream from: " + directUrl);
                 
-                // Use matching User-Agent for YouTube streams depending on the client (c) parameter to avoid 403 Forbidden
+                // Use matching User-Agent for YouTube streams to avoid 403 Forbidden.
+                // The extractor now sources all streaming URLs from the visionOS InnerTube client,
+                // so googlevideo URLs must be requested with the visionOS user agent.
                 String ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
                 if (directUrl.contains("googlevideo.com")) {
                     try {
-                        if (directUrl.contains("c=IOS") || directUrl.contains("c=ios")) {
-                            ua = org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getIosUserAgent(null);
-                        } else if (directUrl.contains("c=VISIONOS") || directUrl.contains("c=visionos")) {
-                            ua = org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getVisionOsUserAgent(null);
-                        } else {
-                            ua = org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getAndroidUserAgent(null);
-                        }
+                        ua = org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getVisionOsUserAgent(null);
                     } catch (Exception e) {}
                 }
 

@@ -145,8 +145,9 @@ public class ServerService extends MediaSessionService {
 
         try {
             // 1. Initialize NewPipe Extractor
+            // (upstream extractor now sources streaming URLs from the visionOS InnerTube client;
+            //  the old setFetchIosClient hook was removed upstream)
             NewPipe.init(new ServerDownloader());
-            org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(true);
 
             // 2. Start HTTP Server
             server = new LocalHttpServer(this, PORT);
