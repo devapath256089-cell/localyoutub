@@ -73,7 +73,7 @@ public class VideoCacheManager {
 
                     String title = extractor.getName();
                     String uploader = extractor.getUploaderName();
-                    String description = extractor.getDescription() != null ? extractor.getDescription().getContent() : "";
+                    String description = extractor.getDescription() != null ? extractor.getDescription().content() : "";
 
                     String thumbUrl = "";
                     if (extractor.getThumbnails() != null && !extractor.getThumbnails().isEmpty()) {

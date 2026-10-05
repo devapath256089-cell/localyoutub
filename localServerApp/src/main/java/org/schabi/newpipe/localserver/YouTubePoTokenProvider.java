@@ -147,7 +147,7 @@ public final class YouTubePoTokenProvider implements PoTokenProvider {
                 // create a new generator (WebView + BotGuard integrity token)
                 final CompletableFuture<PoTokenGenerator> generatorFuture =
                         PoTokenWebView.newPoTokenGenerator(appContext);
-                webPoTokenGenerator = getOrThrow(generatorFuture,
+                webPoTokenGenerator = getGeneratorOrThrow(generatorFuture,
                         GENERATOR_TIMEOUT_SECONDS, "could not create poToken generator");
 
                 // The streaming poToken needs to be generated exactly once before generating
@@ -207,7 +207,7 @@ public final class YouTubePoTokenProvider implements PoTokenProvider {
         }
     }
 
-    private static PoTokenGenerator getOrThrow(
+    private static PoTokenGenerator getGeneratorOrThrow(
             final CompletableFuture<PoTokenGenerator> future,
             final long timeoutSeconds,
             final String errorMessage) {
