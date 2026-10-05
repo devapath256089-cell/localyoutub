@@ -75,6 +75,7 @@ dependencies {
     implementation("androidx.media:media:1.6.0")
     implementation("androidx.media3:media3-exoplayer:1.3.0")
     implementation("androidx.media3:media3-session:1.3.0")
+    implementation("com.google.zxing:core:3.5.3")
 
     implementation("org.java-websocket:Java-WebSocket:1.5.3")
 }

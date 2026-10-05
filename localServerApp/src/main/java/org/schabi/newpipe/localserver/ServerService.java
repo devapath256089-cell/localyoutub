@@ -4,8 +4,11 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
@@ -30,6 +33,7 @@ public class ServerService extends MediaSessionService {
     private static final String CHANNEL_ID = "LocalServerChannel";
     private static final int NOTIFICATION_ID = 1204;
     private static final int PORT = 8080;
+    private static final String MDNS_SERVICE_NAME = "localyoutube";
 
     private LocalHttpServer server;
     private boolean isRunning = false;
@@ -37,6 +41,8 @@ public class ServerService extends MediaSessionService {
     private ServerStatusListener statusListener;
     private android.os.PowerManager.WakeLock wakeLock;
     private android.net.wifi.WifiManager.WifiLock wifiLock;
+    private NsdManager nsdManager;
+    private NsdManager.RegistrationListener nsdListener;
 
     public interface ServerStatusListener {
         void onStatusChanged(boolean isRunning);
@@ -117,7 +123,8 @@ public class ServerService extends MediaSessionService {
         );
 
         String localIp = getLocalIpAddress();
-        String addressText = localIp != null ? "http://" + localIp + ":" + PORT : "http://localhost:" + PORT;
+        String addressText = "http://" + MDNS_SERVICE_NAME + ".local:" + PORT
+                + (localIp != null ? "  |  http://" + localIp + ":" + PORT : "");
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("LocalYouTube Running")
@@ -145,6 +152,9 @@ public class ServerService extends MediaSessionService {
             server = new LocalHttpServer(this, PORT);
             server.startServer();
             isRunning = true;
+
+            // 3. Advertise the server via mDNS so http://localyoutube.local:8080 works
+            registerNsd();
 
             try {
                 android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
@@ -175,6 +185,65 @@ public class ServerService extends MediaSessionService {
         }
     }
 
+    /**
+     * Advertises the HTTP server over mDNS (Bonjour) as "localyoutube._http._tcp"
+     * so clients can reach http://localyoutube.local:8080 instead of a raw IP.
+     * Resolution support varies per platform (iOS/macOS, Windows 10+, most
+     * Android and modern Linux with Avahi resolve .local natively); the raw
+     * IP URL stays available as fallback.
+     */
+    private void registerNsd() {
+        try {
+            nsdManager = (NsdManager) getSystemService(Context.NSD_SERVICE);
+            if (nsdManager == null) {
+                LocalHttpServer.log("mDNS unavailable: NsdManager is null");
+                return;
+            }
+            NsdServiceInfo serviceInfo = new NsdServiceInfo();
+            serviceInfo.setServiceName(MDNS_SERVICE_NAME);
+            serviceInfo.setServiceType("_http._tcp.");
+            serviceInfo.setPort(PORT);
+
+            nsdListener = new NsdManager.RegistrationListener() {
+                @Override
+                public void onServiceRegistered(NsdServiceInfo info) {
+                    // Android appends a suffix (e.g. "localyoutube (2)") on name conflicts
+                    LocalHttpServer.log("mDNS registered: http://" + info.getServiceName() + ".local:" + PORT);
+                }
+
+                @Override
+                public void onRegistrationFailed(NsdServiceInfo info, int errorCode) {
+                    LocalHttpServer.log("mDNS registration failed, errorCode=" + errorCode);
+                }
+
+                @Override
+                public void onServiceUnregistered(NsdServiceInfo info) {
+                    LocalHttpServer.log("mDNS unregistered: " + info.getServiceName());
+                }
+
+                @Override
+                public void onUnregistrationFailed(NsdServiceInfo info, int errorCode) {
+                    LocalHttpServer.log("mDNS unregistration failed, errorCode=" + errorCode);
+                }
+            };
+            nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, nsdListener);
+        } catch (Exception e) {
+            LocalHttpServer.log("mDNS registration error: " + e.getMessage());
+        }
+    }
+
+    private void unregisterNsd() {
+        try {
+            if (nsdManager != null && nsdListener != null) {
+                nsdManager.unregisterService(nsdListener);
+            }
+        } catch (Exception e) {
+            LocalHttpServer.log("mDNS unregistration error: " + e.getMessage());
+        } finally {
+            nsdListener = null;
+        }
+    }
+
     public void stopServer() {
         if (wakeLock != null && wakeLock.isHeld()) {
             try {
@@ -186,6 +255,7 @@ public class ServerService extends MediaSessionService {
                 wifiLock.release();
             } catch (Exception ignored) {}
         }
+        unregisterNsd();
         if (server != null) {
             server.stopServer();
         }

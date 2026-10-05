@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -13,6 +14,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -24,6 +27,9 @@ import androidx.viewpager2.widget.ViewPager2;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -35,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView textUrls;
     private Button btnToggle;
     private Button btnOpenBrowser;
+    private Button btnQr;
     private Button btnSettings;
     private com.google.android.material.card.MaterialCardView cardStatus;
     private TextView statusIndicator;
@@ -170,8 +177,20 @@ public class MainActivity extends AppCompatActivity {
         textUrls = view.findViewById(R.id.text_urls);
         btnToggle = view.findViewById(R.id.btn_toggle);
         btnOpenBrowser = view.findViewById(R.id.btn_open_browser);
+        btnQr = view.findViewById(R.id.btn_qr);
         cardStatus = view.findViewById(R.id.card_status);
         statusIndicator = view.findViewById(R.id.status_indicator);
+
+        if (btnQr != null) {
+            btnQr.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (isBound && serverService != null && serverService.isRunning()) {
+                        showQrDialog(serverService.getLocalAddress());
+                    }
+                }
+            });
+        }
 
         cardGettingStarted = view.findViewById(R.id.card_getting_started);
         btnToggleGuide = view.findViewById(R.id.btn_toggle_guide);
@@ -293,6 +312,49 @@ public class MainActivity extends AppCompatActivity {
         updateLockUi();
     }
 
+    /**
+     * Shows a dialog with a QR code encoding the server URL so any phone camera
+     * on the same Wi-Fi can connect without typing the address.
+     */
+    private void showQrDialog(String url) {
+        try {
+            final int size = 720;
+            BitMatrix matrix = new QRCodeWriter().encode(url, BarcodeFormat.QR_CODE, size, size);
+            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565);
+            for (int x = 0; x < size; x++) {
+                for (int y = 0; y < size; y++) {
+                    bitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
+                }
+            }
+
+            LinearLayout layout = new LinearLayout(this);
+            layout.setOrientation(LinearLayout.VERTICAL);
+            layout.setGravity(android.view.Gravity.CENTER);
+            layout.setPadding(48, 48, 48, 32);
+            layout.setBackgroundColor(Color.WHITE);
+
+            ImageView qrView = new ImageView(this);
+            qrView.setImageBitmap(bitmap);
+            qrView.setContentDescription("QR code for " + url);
+            layout.addView(qrView, new LinearLayout.LayoutParams(size / 2, size / 2));
+
+            TextView caption = new TextView(this);
+            caption.setText("Scan with any camera app on the same Wi-Fi\n" + url);
+            caption.setGravity(android.view.Gravity.CENTER);
+            caption.setPadding(0, 24, 0, 0);
+            caption.setTextColor(Color.DKGRAY);
+            layout.addView(caption);
+
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Connect via QR Code")
+                    .setView(layout)
+                    .setPositiveButton("Close", null)
+                    .show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not generate QR code: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void startServerService() {
         Intent intent = new Intent(this, ServerService.class);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -322,8 +384,10 @@ public class MainActivity extends AppCompatActivity {
             String localIp = ServerService.getLocalIpAddress();
             textIpAddress.setText("IP Address: " + (localIp != null ? localIp : "Not Available"));
             String addressText = "Local Device: http://localhost:8080\n" +
+                    "Any Device (mDNS): http://localyoutube.local:8080\n" +
                     (localIp != null ? "Network Link: http://" + localIp + ":8080" : "");
             textUrls.setText(addressText);
+            if (btnQr != null) btnQr.setEnabled(true);
         } else {
             int colorError = MaterialColors.getColor(this, com.google.android.material.R.attr.colorError, Color.parseColor("#E53935"));
             int colorErrorContainer = MaterialColors.getColor(this, com.google.android.material.R.attr.colorErrorContainer, Color.parseColor("#2D1313"));
@@ -338,6 +402,7 @@ public class MainActivity extends AppCompatActivity {
             int colorPrimary = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.parseColor("#4CAF50"));
             btnToggle.setBackgroundTintList(ColorStateList.valueOf(colorPrimary));
             btnOpenBrowser.setEnabled(false);
+            if (btnQr != null) btnQr.setEnabled(false);
             textIpAddress.setText("IP Address: Not Available");
             textUrls.setText("Server is not running.");
         }

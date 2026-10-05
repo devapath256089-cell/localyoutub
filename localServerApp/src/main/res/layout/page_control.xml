@@ -221,6 +221,18 @@
                         android:text="open"
                         android:textStyle="bold"
                         android:enabled="false"
+                        android:layout_marginEnd="8dp"
+                        app:cornerRadius="12dp"/>
+
+                    <Button
+                        android:id="@+id/btn_qr"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="54dp"
+                        android:layout_weight="1"
+                        android:text="QR"
+                        android:textStyle="bold"
+                        android:enabled="false"
                         app:cornerRadius="12dp"/>
                 </LinearLayout>
             </LinearLayout>

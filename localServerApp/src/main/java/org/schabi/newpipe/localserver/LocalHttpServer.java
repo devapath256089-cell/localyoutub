@@ -174,6 +174,27 @@ public class LocalHttpServer {
             .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .build();
 
+    // --- SponsorBlock proxy cache -------------------------------------------------
+    // Positive results (segment list) are cached for 6h, empty/failed lookups for
+    // 30min so a video without segments does not re-hit the upstream API on every
+    // client. The cache is process-wide because this server is single-tenant.
+    private static final long SB_POSITIVE_TTL_MS = 6L * 60 * 60 * 1000;
+    private static final long SB_NEGATIVE_TTL_MS = 30L * 60 * 1000;
+    private static final java.util.Map<String, SponsorBlockCacheEntry> sponsorBlockCache = new java.util.concurrent.ConcurrentHashMap<>();
+    static final String SPONSORBLOCK_DEFAULT_CONFIG = "{\"enabled\":true,\"cats\":{\"sponsor\":true,\"selfpromo\":true,\"intro\":true,\"outro\":true,\"interaction\":false,\"music_offtopic\":false}}";
+
+    private static final class SponsorBlockCacheEntry {
+        final String json;
+        final boolean ok;
+        final long timestamp;
+
+        SponsorBlockCacheEntry(String json, boolean ok, long timestamp) {
+            this.json = json;
+            this.ok = ok;
+            this.timestamp = timestamp;
+        }
+    }
+
     private final android.content.Context context;
     private final HistoryDbHelper dbHelper;
 
@@ -664,6 +685,8 @@ public class LocalHttpServer {
                         handleShortsApiFeed(os, params);
                     } else if (path.equals("/api/shorts/refresh")) {
                         handleShortsApiRefresh(os, params);
+                    } else if (path.equals("/api/sponsorblock")) {
+                        handleSponsorBlock(os, params);
                     } else if (path.equals("/settings")) {
                         handleSettings(os, params, isTv);
                     } else if (path.equals("/watch-later")) {
@@ -959,7 +982,8 @@ public class LocalHttpServer {
                 String targetQuality = dbHelper.getVideoQuality();
                 
                 long duration = info.getDuration();
-                String html = HtmlRenderer.renderWatchContent(serviceId, info, cachedVideo, isSubscribed, isTv, targetQuality, duration);
+                String sbConfig = dbHelper.getSetting("sponsorblock_config", SPONSORBLOCK_DEFAULT_CONFIG);
+                String html = HtmlRenderer.renderWatchContent(serviceId, info, cachedVideo, isSubscribed, isTv, targetQuality, duration, sbConfig);
                 sendResponse(os, 200, html, "text/html; charset=UTF-8");
             } catch (Exception e) {
                 if (cachedVideo != null) {
@@ -1669,6 +1693,20 @@ public class LocalHttpServer {
                 if (params.containsKey("home_feed_mode")) {
                     dbHelper.setSetting("home_feed_mode", params.get("home_feed_mode"));
                 }
+                if (params.containsKey("sponsorblock")) {
+                    // Round-trip through JSONObject so only a well-formed config
+                    // object ever lands in the settings store.
+                    try {
+                        org.json.JSONObject sbObj = new org.json.JSONObject(params.get("sponsorblock"));
+                        org.json.JSONObject cats = sbObj.optJSONObject("cats");
+                        if (cats == null) {
+                            cats = new org.json.JSONObject();
+                        }
+                        sbObj.put("cats", cats);
+                        dbHelper.setSetting("sponsorblock_config", sbObj.toString());
+                    } catch (Exception ignored) {
+                    }
+                }
 
                 if ("ajax".equals(params.get("format"))) {
                     sendResponse(os, 200, "OK", "text/plain; charset=UTF-8");
@@ -1687,9 +1725,10 @@ public class LocalHttpServer {
             boolean hideWatched = dbHelper.getHideWatched();
             boolean hideShorts = dbHelper.getHideShorts();
             String homeFeedMode = dbHelper.getHomeFeedMode();
+            String sbConfig = dbHelper.getSetting("sponsorblock_config", SPONSORBLOCK_DEFAULT_CONFIG);
             boolean saved = "true".equals(params.get("saved"));
 
-            String html = HtmlRenderer.renderSettings(0, currentQuality, hideWatched, hideShorts, homeFeedMode, saved, isTv);
+            String html = HtmlRenderer.renderSettings(0, currentQuality, hideWatched, hideShorts, homeFeedMode, saved, isTv, sbConfig);
             sendResponse(os, 200, html, "text/html; charset=UTF-8");
         }
 
@@ -2295,6 +2334,55 @@ public class LocalHttpServer {
             log("Shorts cache cleared by user refresh request.");
             LocalHttpServer.refillingCache(serviceId, dbHelper, executorService);
             sendResponse(os, 200, "{\"status\":\"refreshing\"}", "application/json; charset=UTF-8");
+        }
+
+        private void handleSponsorBlock(OutputStream os, Map<String, String> params) throws IOException {
+            String videoId = params.get("id");
+            if (videoId == null || !videoId.matches("[A-Za-z0-9_-]{11}")) {
+                sendResponse(os, 400, "{\"error\":\"invalid video id\"}", "application/json; charset=UTF-8");
+                return;
+            }
+
+            long now = System.currentTimeMillis();
+            SponsorBlockCacheEntry entry = sponsorBlockCache.get(videoId);
+            if (entry != null) {
+                long ttl = entry.ok ? SB_POSITIVE_TTL_MS : SB_NEGATIVE_TTL_MS;
+                if (now - entry.timestamp < ttl) {
+                    sendResponse(os, 200, entry.json, "application/json; charset=UTF-8");
+                    return;
+                }
+                sponsorBlockCache.remove(videoId);
+            }
+
+            // Keep the cache bounded; this server is single-tenant so a plain
+            // size cap with a full reset is more than enough.
+            if (sponsorBlockCache.size() > 1000) {
+                sponsorBlockCache.clear();
+            }
+
+            String categoriesJson = "[\"sponsor\",\"selfpromo\",\"intro\",\"outro\",\"interaction\",\"music_offtopic\"]";
+            String url = "https://sponsor.ajay.app/api/skipSegments?videoID=" + videoId
+                    + "&categories=" + android.net.Uri.encode(categoriesJson);
+
+            String body = "[]";
+            boolean ok = false;
+            try {
+                okhttp3.Request request = new okhttp3.Request.Builder().url(url).get().build();
+                try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        String fetched = response.body().string();
+                        if (fetched != null && fetched.startsWith("[")) {
+                            body = fetched;
+                            ok = true;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log("SponsorBlock fetch failed for " + videoId + ": " + e.getMessage());
+            }
+
+            sponsorBlockCache.put(videoId, new SponsorBlockCacheEntry(body, ok, System.currentTimeMillis()));
+            sendResponse(os, 200, body, "application/json; charset=UTF-8");
         }
 
         private void handleShortsApiFeed(OutputStream os, Map<String, String> params) throws Exception {

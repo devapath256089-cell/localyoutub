@@ -1620,7 +1620,7 @@ public class HtmlRenderer {
         return wrapInTemplate("Loading video...", sb.toString(), isTv);
     }
 
-    public static String renderWatchContent(int serviceId, StreamInfo info, CachedVideo cachedVideo, boolean isSubscribed, boolean isTv, String targetQuality, long duration) {
+    public static String renderWatchContent(int serviceId, StreamInfo info, CachedVideo cachedVideo, boolean isSubscribed, boolean isTv, String targetQuality, long duration, String sponsorblockConfig) {
         StringBuilder sb = new StringBuilder();
         String nextVideoUrl = "";
         String nextVideoTitle = "";
@@ -2254,6 +2254,8 @@ public class HtmlRenderer {
               .append("            })();\n")
               .append("        </script>\n");
         }
+
+        sb.append(renderSponsorBlockScript(extractYoutubeVideoId(info.getUrl()), sponsorblockConfig));
 
         String formattedViews = info.getViewCount() >= 0 ? formatCount(info.getViewCount()) + " views" : "Unknown views";
         String uploadDate = info.getTextualUploadDate() != null ? info.getTextualUploadDate() : "Unknown date";
@@ -2975,7 +2977,90 @@ public class HtmlRenderer {
         return wrapInTemplate("Offline Dashboard - LocalYouTube", sb.toString(), isTv);
     }
 
-    public static String renderSettings(int serviceId, String currentQuality, boolean hideWatched, boolean hideShorts, String homeFeedMode, boolean saved, boolean isTv) {
+    /**
+     * Extracts the 11-character YouTube video id from a watch / youtu.be / shorts
+     * URL. Returns null when the URL is not a recognizable YouTube video link;
+     * renderSponsorBlockScript treats null as "no SponsorBlock for this page".
+     */
+    public static String extractYoutubeVideoId(String url) {
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?:[?&]v=|youtu\\.be/|/shorts/)([A-Za-z0-9_-]{11})")
+                .matcher(url);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
+     * Client-side SponsorBlock integration for the web player. The server proxies
+     * the sponsor.ajay.app API (/api/sponsorblock?id=...) so the browser only talks
+     * to the local server. Segment skip decisions are filtered by the persisted
+     * per-category config stored in the server settings database.
+     */
+    public static String renderSponsorBlockScript(String videoId, String configJson) {
+        if (videoId == null || videoId.isEmpty()) {
+            return "";
+        }
+        String cfg = (configJson == null || configJson.trim().isEmpty())
+                ? "{\"enabled\":true}" : configJson.trim();
+        // Prevent </script> breakouts when embedding JSON inline.
+        String safeCfg = cfg.replace("<", "\\u003c");
+        StringBuilder sb = new StringBuilder();
+        sb.append("        <script>\n")
+          .append("            (function() {\n")
+          .append("                var sbCfg = ").append(safeCfg).append(";\n")
+          .append("                if (!sbCfg || sbCfg.enabled === false) return;\n")
+          .append("                var cats = sbCfg.cats || {};\n")
+          .append("                function catEnabled(c) { return cats[c] !== false; }\n")
+          .append("                var attempts = 0;\n")
+          .append("                var timer = setInterval(function() {\n")
+          .append("                    attempts++;\n")
+          .append("                    var p = window.videoPlayer;\n")
+          .append("                    if (!p) { if (attempts > 50) clearInterval(timer); return; }\n")
+          .append("                    clearInterval(timer);\n")
+          .append("                    fetch('/api/sponsorblock?id=' + encodeURIComponent('").append(escapeJs(videoId)).append("'))\n")
+          .append("                        .then(function(r) { return r.json(); })\n")
+          .append("                        .then(function(segments) {\n")
+          .append("                            if (!Array.isArray(segments) || !segments.length) return;\n")
+          .append("                            var skipped = {};\n")
+          .append("                            p.on('timeupdate', function() {\n")
+          .append("                                var t = p.currentTime();\n")
+          .append("                                for (var i = 0; i < segments.length; i++) {\n")
+          .append("                                    var s = segments[i];\n")
+          .append("                                    if (!s || !s.segment || s.segment.length < 2) continue;\n")
+          .append("                                    var start = s.segment[0], end = s.segment[1];\n")
+          .append("                                    if (t >= start && t < end - 0.3 && catEnabled(s.category)) {\n")
+          .append("                                        var key = s.category + ':' + start;\n")
+          .append("                                        if (!skipped[key]) {\n")
+          .append("                                            skipped[key] = true;\n")
+          .append("                                            sbToast('Skipped ' + (s.category || 'segment'));\n")
+          .append("                                        }\n")
+          .append("                                        try { p.currentTime(end); } catch (e) {}\n")
+          .append("                                        break;\n")
+          .append("                                    }\n")
+          .append("                                }\n")
+          .append("                            });\n")
+          .append("                        })\n")
+          .append("                        .catch(function() {});\n")
+          .append("                }, 200);\n")
+          .append("                function sbToast(msg) {\n")
+          .append("                    var toast = document.createElement('div');\n")
+          .append("                    toast.textContent = '\\u23ed ' + msg;\n")
+          .append("                    toast.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:99999;background:rgba(20,20,20,0.9);color:#fff;padding:10px 18px;border-radius:24px;font-size:14px;font-family:inherit;opacity:0;transition:opacity .3s;pointer-events:none;';\n")
+          .append("                    document.body.appendChild(toast);\n")
+          .append("                    requestAnimationFrame(function() { toast.style.opacity = '1'; });\n")
+          .append("                    setTimeout(function() {\n")
+          .append("                        toast.style.opacity = '0';\n")
+          .append("                        setTimeout(function() { toast.remove(); }, 400);\n")
+          .append("                    }, 2200);\n")
+          .append("                }\n")
+          .append("            })();\n")
+          .append("        </script>\n");
+        return sb.toString();
+    }
+
+    public static String renderSettings(int serviceId, String currentQuality, boolean hideWatched, boolean hideShorts, String homeFeedMode, boolean saved, boolean isTv, String sponsorblockConfig) {
         StringBuilder sb = new StringBuilder();
         sb.append(getHeaderHtml(serviceId, "", "settings"));
         sb.append("<div class=\"container\">\n")
@@ -3087,8 +3172,96 @@ public class HtmlRenderer {
           .append("            <span class=\"setting-desc\">View your local watch history.</span>\n")
           .append("          </div>\n")
           .append("          <a href=\"/history\" class=\"subscribe-btn\" style=\"background-color: var(--logo-color); padding: 8px 20px; font-size: 14px; text-decoration: none; border-radius: 100px; display: inline-flex; align-items: center; justify-content: center; height: 36px;\">View</a>\n")
-          .append("      </div>\n")
-          .append("    <div class=\"settings-section\">\n")
+          .append("      </div>\n");
+
+        // --- SponsorBlock section (config persisted in the settings database) ---
+        String sbCfgRaw = (sponsorblockConfig == null || sponsorblockConfig.trim().isEmpty())
+                ? LocalHttpServer.SPONSORBLOCK_DEFAULT_CONFIG : sponsorblockConfig;
+        boolean sbEnabled = true;
+        java.util.Map<String, Boolean> sbCats = new java.util.HashMap<>();
+        for (String c : new String[]{"sponsor", "selfpromo", "intro", "outro"}) {
+            sbCats.put(c, true);
+        }
+        for (String c : new String[]{"interaction", "music_offtopic"}) {
+            sbCats.put(c, false);
+        }
+        try {
+            org.json.JSONObject sbObj = new org.json.JSONObject(sbCfgRaw);
+            sbEnabled = sbObj.optBoolean("enabled", true);
+            org.json.JSONObject storedCats = sbObj.optJSONObject("cats");
+            if (storedCats != null) {
+                for (String c : sbCats.keySet()) {
+                    sbCats.put(c, storedCats.optBoolean(c, sbCats.get(c)));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        sb.append("    <div class=\"settings-section\">\n")
+          .append("      <h3 class=\"settings-section-title\">SponsorBlock</h3>\n")
+          .append("      <p class=\"setting-desc\" style=\"margin-bottom: 16px;\">Auto-skip sponsor reads, self-promotion, intermissions and other annoying segments using the community SponsorBlock database. Segment data is fetched through this server and cached locally.</p>\n")
+          .append("      <div class=\"setting-row\">\n")
+          .append("        <div class=\"setting-label-group\">\n")
+          .append("          <span class=\"setting-label\">Skip Segments</span>\n")
+          .append("          <span class=\"setting-desc\">Master switch for all SponsorBlock skipping.</span>\n")
+          .append("        </div>\n")
+          .append("        <label class=\"switch\">\n")
+          .append("          <input type=\"checkbox\" id=\"sb-enabled\" value=\"on\" ").append(sbEnabled ? "checked" : "").append(">\n")
+          .append("          <span class=\"slider\"></span>\n")
+          .append("        </label>\n")
+          .append("      </div>\n");
+
+        String[][] sbCatRows = {
+            {"sponsor", "Sponsor", "Paid promotions and sponsor reads."},
+            {"selfpromo", "Self-Promotion", "Unpaid self-promotion (merch, channels, Patreon)."},
+            {"intro", "Intermission", "Intro animations, recaps and title cards."},
+            {"outro", "Outro", "Endcards, credits and subscribe screens."},
+            {"interaction", "Interaction Reminder", "\u201cLike and subscribe\u201d reminders."},
+            {"music_offtopic", "Non-Music Section", "Non-music sections in music videos."}
+        };
+        for (String[] catRow : sbCatRows) {
+            boolean on = sbCats.get(catRow[0]);
+            sb.append("      <div class=\"setting-row\">\n")
+              .append("        <div class=\"setting-label-group\">\n")
+              .append("          <span class=\"setting-label\">").append(catRow[1]).append("</span>\n")
+              .append("          <span class=\"setting-desc\">").append(catRow[2]).append("</span>\n")
+              .append("        </div>\n")
+              .append("        <label class=\"switch\">\n")
+              .append("          <input type=\"checkbox\" id=\"sb-cat-").append(catRow[0]).append("\" value=\"on\" ").append(on ? "checked" : "").append(">\n")
+              .append("          <span class=\"slider\"></span>\n")
+              .append("        </label>\n")
+              .append("      </div>\n");
+        }
+
+        sb.append("      <script>\n")
+          .append("        (function() {\n")
+          .append("            var ids = {enabled:'sb-enabled', sponsor:'sb-cat-sponsor', selfpromo:'sb-cat-selfpromo', intro:'sb-cat-intro', outro:'sb-cat-outro', interaction:'sb-cat-interaction', music_offtopic:'sb-cat-music-offtopic'};\n")
+          .append("            var busy = false;\n")
+          .append("            function currentCfg() {\n")
+          .append("                var master = document.getElementById(ids.enabled);\n")
+          .append("                var c = {enabled: !!(master && master.checked), cats: {}};\n")
+          .append("                for (var k in ids) {\n")
+          .append("                    if (k === 'enabled') continue;\n")
+          .append("                    var el = document.getElementById(ids[k]);\n")
+          .append("                    if (el) c.cats[k] = el.checked;\n")
+          .append("                }\n")
+          .append("                return c;\n")
+          .append("            }\n")
+          .append("            function save() {\n")
+          .append("                if (busy) return;\n")
+          .append("                busy = true;\n")
+          .append("                fetch('/settings?action=save&format=ajax&sponsorblock=' + encodeURIComponent(JSON.stringify(currentCfg())))\n")
+          .append("                    .then(function() { if (typeof showToast === 'function') showToast('Preference saved'); busy = false; })\n")
+          .append("                    .catch(function() { busy = false; });\n")
+          .append("            }\n")
+          .append("            for (var k in ids) {\n")
+          .append("                var el = document.getElementById(ids[k]);\n")
+          .append("                if (el) el.addEventListener('change', save);\n")
+          .append("            }\n")
+          .append("        })();\n")
+          .append("      </script>\n");
+
+        sb.append("    <div class=\"settings-section\">\n")
           .append("      <h3 class=\"settings-section-title\">Backup &amp; Restore Database</h3>\n")
           .append("      <p class=\"setting-desc\" style=\"margin-bottom: 16px;\">Export your local history, subscriptions, and bookmarks to a JSON file, or restore them from a previous backup.</p>\n")
           .append("      <div style=\"display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;\">\n")
