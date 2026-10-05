@@ -56,7 +56,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Welcome to LocalTube"
+                            android:text="Welcome to LocalYouTube"
                             style="@style/TextAppearance.Material3.TitleMedium"
                             android:textStyle="bold"
                             android:textColor="?attr/colorOnSecondaryContainer"/>

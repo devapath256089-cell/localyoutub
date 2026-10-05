@@ -1,17 +1,17 @@
-# LocalTube
+# LocalYouTube
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-**LocalTube** is a high-performance, self-hosted streaming server solution built exclusively for **YouTube**. By bundling a lightweight, concurrent Java HTTP server inside an Android application (`localServerApp`), LocalTube enables you to browse, search, and stream YouTube videos and Shorts directly from any device in your local network using a standard web browser—with absolute privacy.
+**LocalYouTube** is a high-performance, self-hosted streaming server solution built exclusively for **YouTube**. By bundling a lightweight, concurrent Java HTTP server inside an Android application (`localServerApp`), LocalYouTube enables you to browse, search, and stream YouTube videos and Shorts directly from any device in your local network using a standard web browser—with absolute privacy.
 
 ---
 
-[![downloads](https://img.shields.io/github/downloads/diekaiju/localtube/total?logo=github&label=GitHub%20Downloads)](https://github.com/diekaiju/localtube/releases)
+[![downloads](https://img.shields.io/github/downloads/devapath256089-cell/localyoutub/total?logo=github&label=GitHub%20Downloads)](https://github.com/devapath256089-cell/localyoutub/releases)
 
 
-## 📺 LocalTube Application (`localServerApp`)
+## 📺 LocalYouTube Application (`localServerApp`)
 
-LocalTube transforms your Android device into a private, self-hosted YouTube streaming web server.
+LocalYouTube transforms your Android device into a private, self-hosted YouTube streaming web server.
 
 ### 🌟 Key Features
 - **Decentralized Local Server:** Runs a lightweight, concurrent Java HTTP server directly on your Android device (default port `8080`), serving a modern, responsive web interface.
@@ -59,7 +59,7 @@ To compile and launch the local server application:
    *Alternatively, open this repository in Android Studio and run the `:localServerApp` run configuration.*
 
 2. **Run the Server:**
-   - Open the **LocalTube** app on your device.
+   - Open the **LocalYouTube** app on your device.
    - Tap **Start Server** to activate the foreground service. A persistent notification will display your active local network URL.
    - Access `http://localhost:8080` (or `http://<your-device-ip>:8080`) from any browser on the same network.
 

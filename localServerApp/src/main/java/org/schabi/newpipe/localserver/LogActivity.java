@@ -114,7 +114,7 @@ public class LogActivity extends AppCompatActivity implements LogRepository.LogL
         String rawLogs = textLogs.getText().toString();
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
-            ClipData clip = ClipData.newPlainText("LocalTube Server Logs", rawLogs);
+            ClipData clip = ClipData.newPlainText("LocalYouTube Server Logs", rawLogs);
             clipboard.setPrimaryClip(clip);
             Toast.makeText(this, "Logs copied to clipboard", Toast.LENGTH_SHORT).show();
         }

@@ -169,7 +169,7 @@ public class WebPlayerActivity extends AppCompatActivity {
                     Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                     intent.addCategory(Intent.CATEGORY_OPENABLE);
                     intent.setType("application/json");
-                    intent.putExtra(Intent.EXTRA_TITLE, "localtube_backup.json");
+                    intent.putExtra(Intent.EXTRA_TITLE, "localyoutube_backup.json");
                     startActivityForResult(intent, EXPORT_RESULTCODE);
                 } catch (Exception e) {
                     e.printStackTrace();

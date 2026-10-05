@@ -22,4 +22,4 @@ project(":extractor").projectDir = file("NewPipeExtractor/extractor")
 include("timeago-generator")
 project(":timeago-generator").projectDir = file("NewPipeExtractor/timeago-generator")
 
-rootProject.name = "NewPipeExtractor"
+rootProject.name = "LocalYouTube"

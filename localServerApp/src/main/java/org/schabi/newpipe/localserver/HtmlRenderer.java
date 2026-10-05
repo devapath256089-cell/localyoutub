@@ -462,7 +462,7 @@ public class HtmlRenderer {
           .append("  <div class=\"top-bar\">\n")
           .append("    <div style=\"display:flex; align-items:center;\">\n")
           .append("      <button id=\"sidebar-toggle-btn\" class=\"theme-toggle-btn\" aria-label=\"Toggle Sidebar\" style=\"margin-right:8px;\"><svg viewBox=\"0 0 24 24\" fill=\"currentColor\" width=\"24\" height=\"24\"><path d=\"M21 6H3V5h18v1zm0 5H3v1h18v-1zm0 6H3v1h18v-1z\"/></svg></button>\n")
-          .append("      <a href=\"/\" class=\"logo\"><svg viewBox=\"0 0 24 24\" width=\"28\" height=\"28\" fill=\"#FF0000\" style=\"display:inline-block; vertical-align:middle; margin-right:6px;\"><path d=\"M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z\"/></svg>LocalTube</a>\n")
+          .append("      <a href=\"/\" class=\"logo\"><svg viewBox=\"0 0 24 24\" width=\"28\" height=\"28\" fill=\"#FF0000\" style=\"display:inline-block; vertical-align:middle; margin-right:6px;\"><path d=\"M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z\"/></svg>LocalYouTube</a>\n")
           .append("    </div>\n")
           .append("    <form action=\"/search\" method=\"GET\" class=\"search-form\">\n")
           .append("      <input type=\"hidden\" name=\"serviceId\" value=\"").append(activeServiceId).append("\">\n")
@@ -719,7 +719,7 @@ public class HtmlRenderer {
                 "                copyBtn.style.background = 'var(--logo-color, #7c3aed)';\n" +
                 "            }\n" +
                 "            const encUrl = encodeURIComponent(fullUrl);\n" +
-                "            const encTitle = encodeURIComponent(title || 'LocalTube Video');\n" +
+                "            const encTitle = encodeURIComponent(title || 'LocalYouTube Video');\n" +
                 "            const wa = document.getElementById('share-wa'); if (wa) wa.href = 'https://api.whatsapp.com/send?text=' + encTitle + '%20' + encUrl;\n" +
                 "            const tg = document.getElementById('share-tg'); if (tg) tg.href = 'https://t.me/share/url?url=' + encUrl + '&text=' + encTitle;\n" +
                 "            const tw = document.getElementById('share-tw'); if (tw) tw.href = 'https://twitter.com/intent/tweet?text=' + encTitle + '&url=' + encUrl;\n" +
@@ -1457,7 +1457,7 @@ public class HtmlRenderer {
           .append("          });\n")
           .append("  });\n")
           .append("</script>\n");
-        return wrapInTemplate(SERVICE_NAMES[serviceId] + " - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate(SERVICE_NAMES[serviceId] + " - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderHomeFeed(int serviceId, List<InfoItem> items, Page nextPage) {
@@ -1496,7 +1496,7 @@ public class HtmlRenderer {
         }
 
         sb.append("</div>\n");
-        return wrapInTemplate(SERVICE_NAMES[serviceId] + " - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate(SERVICE_NAMES[serviceId] + " - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderHistory(int serviceId, List<InfoItem> items, boolean isTv) {
@@ -1512,7 +1512,7 @@ public class HtmlRenderer {
         }
 
         sb.append("</div>\n");
-        return wrapInTemplate("Watch History - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate("Watch History - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderWatchLater(int serviceId, List<InfoItem> items, boolean isTv) {
@@ -1528,7 +1528,7 @@ public class HtmlRenderer {
         }
 
         sb.append("</div>\n");
-        return wrapInTemplate("Watch Later - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate("Watch Later - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderSearch(int serviceId, String query, List<InfoItem> items, Page nextPage, boolean isTv) {
@@ -1855,7 +1855,7 @@ public class HtmlRenderer {
             "                    } catch(e) { console.error(e); }\n" +
             "                })();\n";
 
-        sb.append("<script>document.title = \"").append(escapeJs(info.getName())).append(" - LocalTube\";</script>\n");
+        sb.append("<script>document.title = \"").append(escapeJs(info.getName())).append(" - LocalYouTube\";</script>\n");
         sb.append("<div class=\"container\">\n")
           .append("  <div class=\"player-container\">\n")
           .append("    <div class=\"player-layout\">\n")
@@ -2821,7 +2821,7 @@ public class HtmlRenderer {
           .append("  </div>\n")
           .append("</div>\n");
 
-        return wrapInTemplate(video.getTitle() + " - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate(video.getTitle() + " - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderCachedList(int serviceId, List<CachedVideo> items, boolean isTv) {
@@ -2882,7 +2882,7 @@ public class HtmlRenderer {
         }
 
         sb.append("</div>\n");
-        return wrapInTemplate("Cached Videos - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate("Cached Videos - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderSubscriptions(int serviceId, List<InfoItem> channels, List<InfoItem> playlists, List<InfoItem> watchLater, String activeTab, boolean isTv) {
@@ -2927,7 +2927,7 @@ public class HtmlRenderer {
         }
 
         sb.append("</div>\n");
-        return wrapInTemplate("Library - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate("Library - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderOfflineHome(int serviceId, String errorMessage, List<CachedVideo> items, boolean isTv) {
@@ -2972,7 +2972,7 @@ public class HtmlRenderer {
         }
 
         sb.append("</div>\n");
-        return wrapInTemplate("Offline Dashboard - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate("Offline Dashboard - LocalYouTube", sb.toString(), isTv);
     }
 
     public static String renderSettings(int serviceId, String currentQuality, boolean hideWatched, boolean hideShorts, String homeFeedMode, boolean saved, boolean isTv) {
@@ -3133,7 +3133,7 @@ public class HtmlRenderer {
           .append("    });\n")
           .append("</script>\n");
 
-        return wrapInTemplate("Settings - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate("Settings - LocalYouTube", sb.toString(), isTv);
     }
 
     private static String escapeJs(String str) {
@@ -3569,6 +3569,6 @@ public class HtmlRenderer {
           .append("  document.addEventListener('DOMContentLoaded', fetchShortsFeed);\n")
           .append("</script>\n");
 
-        return wrapInTemplate("Reels - LocalTube", sb.toString(), isTv);
+        return wrapInTemplate("Reels - LocalYouTube", sb.toString(), isTv);
     }
 }

@@ -61,7 +61,7 @@
 
         <activity
             android:name=".ShareActivity"
-            android:label="Share to LocalTube"
+            android:label="Share to LocalYouTube"
             android:theme="@style/Theme.AppCompat.Dialog"
             android:exported="true">
             <intent-filter>

@@ -120,7 +120,7 @@ public class ServerService extends MediaSessionService {
         String addressText = localIp != null ? "http://" + localIp + ":" + PORT : "http://localhost:" + PORT;
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("LocalTube Running")
+                .setContentTitle("LocalYouTube Running")
                 .setContentText("Listening on: " + addressText)
                 .setSmallIcon(android.R.drawable.sym_def_app_icon)
                 .setContentIntent(pendingIntent)
@@ -149,12 +149,12 @@ public class ServerService extends MediaSessionService {
             try {
                 android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
                 if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
-                    wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "LocalTube::BackgroundAudioWakeLock");
+                    wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "LocalYouTube::BackgroundAudioWakeLock");
                     wakeLock.acquire();
                 }
                 android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
                 if (wm != null && (wifiLock == null || !wifiLock.isHeld())) {
-                    wifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "LocalTube::WifiLock");
+                    wifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "LocalYouTube::WifiLock");
                     wifiLock.acquire();
                 }
             } catch (Exception e) {
@@ -209,7 +209,7 @@ public class ServerService extends MediaSessionService {
     public void playNativeAudio(String url, String title, String artist) {
         this.currentAudioUrl = url;
         this.currentAudioTitle = title != null ? title : "Audio Stream";
-        this.currentAudioArtist = artist != null ? artist : "LocalTube";
+        this.currentAudioArtist = artist != null ? artist : "LocalYouTube";
 
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             if (player != null) {
@@ -260,7 +260,7 @@ public class ServerService extends MediaSessionService {
             if (player != null) {
                 player.stop();
                 isAudioPlaying = false;
-                updateNotification("LocalTube Running", "Listening on: " + getLocalAddress());
+                updateNotification("LocalYouTube Running", "Listening on: " + getLocalAddress());
             }
         });
     }
@@ -359,7 +359,7 @@ public class ServerService extends MediaSessionService {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
                     CHANNEL_ID,
-                    "LocalTube Channel",
+                    "LocalYouTube Channel",
                     NotificationManager.IMPORTANCE_LOW
             );
             serviceChannel.setSound(null, null);

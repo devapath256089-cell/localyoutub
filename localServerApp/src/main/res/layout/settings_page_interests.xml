@@ -55,7 +55,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="LocalTube builds your feed based on followed interest keywords. Select from suggestions or add custom topics below."
+                        android:text="LocalYouTube builds your feed based on followed interest keywords. Select from suggestions or add custom topics below."
                         style="@style/TextAppearance.Material3.BodySmall"
                         android:textColor="?attr/colorOnPrimaryContainer"
                         android:alpha="0.85"/>
