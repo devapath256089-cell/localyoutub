@@ -2306,7 +2306,7 @@ public class HtmlRenderer {
 
         sb.append("          <div class=\"media-description\">\n")
           .append("            <div style=\"font-weight:700; font-size:13.5px; margin-bottom:8px; color:var(--text-color);\">").append(formattedViews).append(" &nbsp;•&nbsp; ").append(uploadDate).append("</div>\n")
-          .append(info.getDescription() != null ? info.getDescription().getContent() : "No description provided.")
+          .append(info.getDescription() != null ? info.getDescription().content() : "No description provided.")
           .append("          </div>\n")
           .append("        </div>\n");
 
@@ -2718,7 +2718,7 @@ public class HtmlRenderer {
 
         sb.append("        <div class=\"media-description\" style=\"margin-top:20px;\">\n")
           .append("          <div style=\"font-weight:700; font-size:13.5px; margin-bottom:8px; color:var(--text-color);\">").append(formattedViews).append(" &nbsp;•&nbsp; ").append(uploadDate).append("</div>\n")
-          .append(info.getDescription() != null ? info.getDescription().getContent() : "No description provided.")
+          .append(info.getDescription() != null ? info.getDescription().content() : "No description provided.")
           .append("        </div>\n")
           .append("      </div>\n");
 
