@@ -54,6 +54,24 @@ public class LocalHttpServer {
     private static boolean isCacheWorkerRunning = false;
     private static long lastCacheTime = 0;
 
+    // --- Web Access PIN (feature: PIN auth) ----------------------------------------
+    // Optional shared numeric PIN that gates every request served to non-local
+    // clients. The PIN itself is never stored in plaintext: we keep a per-install
+    // random salt plus SHA-256(salt + ":" + pin). Browsers exchange a correct PIN
+    // for an opaque HttpOnly session cookie; media players / external apps can
+    // instead append ?pin=NNNN to any URL. Connections originating from the
+    // device running the app (loopback / own LAN IP) stay exempt so the in-app
+    // WebView and ShareActivity keep working without re-entering the PIN.
+    static final String SETTING_PIN_ENABLED = "pin_auth_enabled";
+    static final String SETTING_PIN_SALT = "pin_auth_salt";
+    static final String SETTING_PIN_HASH = "pin_auth_hash";
+    static final String AUTH_COOKIE_NAME = "LYT_AUTH";
+    private static final long SESSION_TTL_MS = 7L * 24 * 60 * 60 * 1000; // 7 days, sliding
+    private static final java.util.Map<String, Long> authSessions = new java.util.concurrent.ConcurrentHashMap<>();
+    // ip -> {failureCount, lockoutUntilMs}; brute-force guard for PIN entry
+    private static final java.util.Map<String, long[]> pinFailures = new java.util.concurrent.ConcurrentHashMap<>();
+    private static volatile HistoryDbHelper sDbHelper = null;
+
     public static class ClientInfo {
         public final String name;
         public final org.java_websocket.WebSocket connection;
@@ -202,6 +220,187 @@ public class LocalHttpServer {
         this.context = context;
         this.port = port;
         this.dbHelper = HistoryDbHelper.getInstance(context);
+        sDbHelper = this.dbHelper;
+    }
+
+    /** True when PIN auth is switched on and a PIN has actually been set. */
+    static boolean isPinAuthActive() {
+        HistoryDbHelper db = sDbHelper;
+        if (db == null) return false;
+        if (!"true".equals(db.getSetting(SETTING_PIN_ENABLED, "false"))) return false;
+        return hasPinConfigured();
+    }
+
+    /** True when a PIN hash exists (regardless of whether the gate is enabled). */
+    static boolean hasPinConfigured() {
+        HistoryDbHelper db = sDbHelper;
+        return db != null && !db.getSetting(SETTING_PIN_HASH, "").isEmpty();
+    }
+
+    static boolean isValidPinFormat(String pin) {
+        if (pin == null || pin.length() < 4 || pin.length() > 8) return false;
+        for (int i = 0; i < pin.length(); i++) {
+            char c = pin.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
+    }
+
+    private static String hashPin(String salt, String pin) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            return bytesToHex(md.digest((salt + ":" + pin).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** Stores a new PIN (4-8 digits). Returns null on success, else an error message. */
+    static String setPinCode(HistoryDbHelper db, String pin) {
+        if (!isValidPinFormat(pin)) return "PIN must be 4-8 digits";
+        String salt = db.getSetting(SETTING_PIN_SALT, "");
+        if (salt.isEmpty()) {
+            byte[] rnd = new byte[16];
+            new java.security.SecureRandom().nextBytes(rnd);
+            salt = bytesToHex(rnd);
+            db.setSetting(SETTING_PIN_SALT, salt);
+        }
+        db.setSetting(SETTING_PIN_HASH, hashPin(salt, pin));
+        clearAllSessions();
+        return null;
+    }
+
+    /** Constant-time PIN verification against the stored salted hash. */
+    static boolean verifyPinCode(HistoryDbHelper db, String pin) {
+        if (pin == null || pin.length() > 64) return false;
+        String salt = db.getSetting(SETTING_PIN_SALT, "");
+        String stored = db.getSetting(SETTING_PIN_HASH, "");
+        if (salt.isEmpty() || stored.isEmpty()) return false;
+        String candidate = hashPin(salt, pin);
+        if (candidate.isEmpty()) return false;
+        return java.security.MessageDigest.isEqual(
+                candidate.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                stored.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    static void clearAllSessions() {
+        authSessions.clear();
+    }
+
+    static String createSession() {
+        byte[] rnd = new byte[32];
+        new java.security.SecureRandom().nextBytes(rnd);
+        String token = bytesToHex(rnd);
+        purgeExpiredSessions();
+        authSessions.put(token, System.currentTimeMillis() + SESSION_TTL_MS);
+        return token;
+    }
+
+    static boolean isValidSessionToken(String token) {
+        if (token == null || token.isEmpty() || token.length() > 128) return false;
+        Long expiry = authSessions.get(token);
+        if (expiry == null) return false;
+        long now = System.currentTimeMillis();
+        if (expiry < now) {
+            authSessions.remove(token);
+            return false;
+        }
+        authSessions.put(token, now + SESSION_TTL_MS); // sliding expiry
+        return true;
+    }
+
+    private static void purgeExpiredSessions() {
+        if (authSessions.size() < 64) return;
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, Long> e : authSessions.entrySet()) {
+            if (e.getValue() < now) authSessions.remove(e.getKey());
+        }
+    }
+
+    /** True when the connection originates from this device itself (app WebView, ShareActivity...). */
+    static boolean isLocalRequest(java.net.InetAddress remote) {
+        if (remote == null) return false;
+        if (remote.isLoopbackAddress()) return true;
+        String localIp = ServerService.getLocalIpAddress();
+        return localIp != null && localIp.equals(remote.getHostAddress());
+    }
+
+    static String extractSessionToken(String cookieHeader) {
+        if (cookieHeader == null || cookieHeader.isEmpty()) return null;
+        for (String part : cookieHeader.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.startsWith(AUTH_COOKIE_NAME + "=")) {
+                return trimmed.substring(AUTH_COOKIE_NAME.length() + 1);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * True when the given request credentials authorize access: a valid session
+     * cookie, or a correct ?pin= query parameter.
+     */
+    static boolean isRequestAuthorized(HistoryDbHelper db, String cookieHeader, String pinParam) {
+        if (isValidSessionToken(extractSessionToken(cookieHeader))) return true;
+        return pinParam != null && !pinParam.isEmpty() && verifyPinCode(db, pinParam);
+    }
+
+    /** Returns the seconds an IP is still locked out from PIN attempts (0 = allowed). */
+    static int pinLockoutSecondsRemaining(String clientIp) {
+        long[] state = pinFailures.get(clientIp);
+        if (state == null) return 0;
+        long now = System.currentTimeMillis();
+        if (state[1] > now) return (int) Math.ceil((state[1] - now) / 1000.0);
+        if (state[1] > 0) {
+            pinFailures.remove(clientIp); // lockout elapsed, give a fresh counter
+        }
+        return 0;
+    }
+
+    static void recordPinFailure(String clientIp) {
+        long[] state = pinFailures.get(clientIp);
+        if (state == null) {
+            state = new long[]{0, 0};
+            pinFailures.put(clientIp, state);
+        }
+        state[0]++;
+        if (state[0] >= 5) {
+            state[1] = System.currentTimeMillis() + 30_000L; // 30s lockout per 5 failures
+            state[0] = 0;
+        }
+    }
+
+    static void clearPinFailures(String clientIp) {
+        pinFailures.remove(clientIp);
+    }
+
+    /** Masks PIN values before a request line is written to the on-screen log. */
+    static String redactQueryForLog(String query) {
+        if (query == null || query.isEmpty()) return query;
+        StringBuilder sb = new StringBuilder();
+        for (String pair : query.split("&")) {
+            if (sb.length() > 0) sb.append('&');
+            int idx = pair.indexOf('=');
+            if (idx > 0) {
+                String key = pair.substring(0, idx);
+                if (key.equalsIgnoreCase("pin") || key.equalsIgnoreCase("pin_new")
+                        || key.equalsIgnoreCase("pin_confirm") || key.equalsIgnoreCase("pin_code")) {
+                    sb.append(key).append("=***");
+                    continue;
+                }
+            }
+            sb.append(pair);
+        }
+        return sb.toString();
     }
 
     public static void setLogListener(LogListener listener) {
@@ -535,7 +734,7 @@ public class LocalHttpServer {
                 }
 
                 Map<String, String> params = parseQueryParams(query);
-                log("Request: " + method + " " + path + (query != null ? "?" + query : ""));
+                log("Request: " + method + " " + path + (query != null ? "?" + redactQueryForLog(query) : ""));
 
                 // Parse headers
                 Map<String, String> requestHeaders = new HashMap<>();
@@ -603,6 +802,47 @@ public class LocalHttpServer {
                 if (ua != null) {
                     String uaLower = ua.toLowerCase(java.util.Locale.US);
                     isTv = uaLower.contains("tv") || uaLower.contains("googletv") || uaLower.contains("androidtv") || uaLower.contains("smarttv") || uaLower.contains("appletv") || uaLower.contains("roku") || uaLower.contains("aftb") || uaLower.contains("aftt") || uaLower.contains("firetv");
+                }
+
+                // ---------- Web Access PIN gate (feature: PIN auth) ----------
+                // Local (on-device) clients are always allowed; everyone else needs
+                // a valid session cookie or the PIN itself (cookie or ?pin= param).
+                boolean isLocalClient = isLocalRequest(socket.getInetAddress());
+                if (!isLocalClient && isPinAuthActive()) {
+                    String clientIp = socket.getInetAddress() != null
+                            ? socket.getInetAddress().getHostAddress() : "unknown";
+                    if (path.equals("/login")) {
+                        if ("POST".equalsIgnoreCase(method)) {
+                            handleLoginPost(os, postBody, clientIp);
+                        } else {
+                            handleLoginGet(os, params);
+                        }
+                        return;
+                    }
+                    String pinParam = params.get("pin");
+                    String acceptHeader = requestHeaders.get("accept");
+                    boolean wantsHtml = acceptHeader != null
+                            && acceptHeader.toLowerCase(java.util.Locale.US).contains("text/html");
+                    if (!isRequestAuthorized(dbHelper, requestHeaders.get("cookie"), pinParam)) {
+                        if (wantsHtml && "GET".equalsIgnoreCase(method)) {
+                            String next = buildNextUrl(path, params);
+                            sendRedirect(os, "/login?next=" + java.net.URLEncoder.encode(next, "UTF-8"));
+                        } else {
+                            sendUnauthorized(os);
+                        }
+                        return;
+                    }
+                    // Correct ?pin= from a browser that has no session yet: exchange
+                    // the PIN for a cookie and reload the page without ?pin= in the URL.
+                    if (pinParam != null && !pinParam.isEmpty()
+                            && extractSessionToken(requestHeaders.get("cookie")) == null
+                            && "GET".equalsIgnoreCase(method) && wantsHtml) {
+                        String token = createSession();
+                        String next = buildNextUrl(path, params);
+                        log("PIN login success from " + clientIp);
+                        sendRedirectWithCookie(os, next, token);
+                        return;
+                    }
                 }
 
                 try {
@@ -688,7 +928,7 @@ public class LocalHttpServer {
                     } else if (path.equals("/api/sponsorblock")) {
                         handleSponsorBlock(os, params);
                     } else if (path.equals("/settings")) {
-                        handleSettings(os, params, isTv);
+                        handleSettings(os, params, isTv, postBody);
                     } else if (path.equals("/watch-later")) {
                         handleWatchLater(os, params, isTv);
                     } else if (path.equals("/watch_later_action")) {
@@ -709,6 +949,90 @@ public class LocalHttpServer {
                     socket.close();
                 } catch (IOException ignored) {}
             }
+        }
+
+        // ---------- Web Access PIN handlers ----------
+
+        private void handleLoginGet(OutputStream os, Map<String, String> params) throws Exception {
+            String next = sanitizeNext(params.get("next"));
+            sendResponse(os, 200, HtmlRenderer.renderLogin(null, next, 0), "text/html; charset=UTF-8");
+        }
+
+        private void handleLoginPost(OutputStream os, String postBody, String clientIp) throws Exception {
+            Map<String, String> bodyParams = (postBody != null && !postBody.isEmpty())
+                    ? parseQueryParams(postBody) : new HashMap<String, String>();
+            String pin = bodyParams.get("pin");
+            String next = sanitizeNext(bodyParams.get("next"));
+
+            int lockout = pinLockoutSecondsRemaining(clientIp);
+            if (lockout > 0) {
+                sendResponse(os, 429, HtmlRenderer.renderLogin(
+                        "Too many failed attempts. Try again in " + lockout + " seconds.", next, lockout),
+                        "text/html; charset=UTF-8");
+                return;
+            }
+
+            if (pin != null && verifyPinCode(dbHelper, pin)) {
+                clearPinFailures(clientIp);
+                String token = createSession();
+                log("PIN login success from " + clientIp);
+                sendRedirectWithCookie(os, next, token);
+                return;
+            }
+
+            recordPinFailure(clientIp);
+            log("PIN login failed from " + clientIp);
+            sendResponse(os, 401, HtmlRenderer.renderLogin("Incorrect PIN. Please try again.", next, 0),
+                    "text/html; charset=UTF-8");
+        }
+
+        /** Only allow same-site relative redirect targets ("/...", never "//host"). */
+        private String sanitizeNext(String next) {
+            if (next == null || next.isEmpty() || !next.startsWith("/")
+                    || next.startsWith("//") || next.contains("\r") || next.contains("\n")) {
+                return "/";
+            }
+            return next;
+        }
+
+        /** Rebuilds path + query (minus the pin parameter) for post-login redirects. */
+        private String buildNextUrl(String path, Map<String, String> params) {
+            StringBuilder sb = new StringBuilder(path);
+            boolean first = true;
+            for (Map.Entry<String, String> e : params.entrySet()) {
+                if ("pin".equals(e.getKey())) continue;
+                try {
+                    sb.append(first ? '?' : '&')
+                      .append(java.net.URLEncoder.encode(e.getKey(), "UTF-8"))
+                      .append('=')
+                      .append(java.net.URLEncoder.encode(e.getValue() == null ? "" : e.getValue(), "UTF-8"));
+                    first = false;
+                } catch (Exception ignored) {
+                }
+            }
+            return sb.toString();
+        }
+
+        private void sendUnauthorized(OutputStream os) throws IOException {
+            String body = "{\"error\":\"unauthorized\",\"hint\":\"Add ?pin=YOUR_PIN to the URL or open /login\"}";
+            byte[] bytes = body.getBytes("UTF-8");
+            String response = "HTTP/1.1 401 Unauthorized\r\n" +
+                    "Content-Type: application/json; charset=UTF-8\r\n" +
+                    "Content-Length: " + bytes.length + "\r\n" +
+                    "Connection: close\r\n\r\n";
+            os.write(response.getBytes("UTF-8"));
+            os.write(bytes);
+            os.flush();
+        }
+
+        private void sendRedirectWithCookie(OutputStream os, String location, String sessionToken) throws IOException {
+            String response = "HTTP/1.1 303 See Other\r\n" +
+                    "Location: " + location + "\r\n" +
+                    "Set-Cookie: " + AUTH_COOKIE_NAME + "=" + sessionToken + "; Path=/; HttpOnly; Max-Age=604800; SameSite=Lax\r\n" +
+                    "Content-Length: 0\r\n" +
+                    "Connection: close\r\n\r\n";
+            os.write(response.getBytes("UTF-8"));
+            os.flush();
         }
 
         private void handleHome(OutputStream os, Map<String, String> params, boolean isTv) throws Exception {
@@ -1678,7 +2002,17 @@ public class LocalHttpServer {
             os.flush();
         }
 
-        private void handleSettings(OutputStream os, Map<String, String> params, boolean isTv) throws Exception {
+        private void handleSettings(OutputStream os, Map<String, String> params, boolean isTv, String postBody) throws Exception {
+            // Merge form-POST parameters so the PIN never has to travel in a URL
+            if (postBody != null && !postBody.isEmpty()) {
+                Map<String, String> bodyParams = parseQueryParams(postBody);
+                for (Map.Entry<String, String> e : bodyParams.entrySet()) {
+                    if (!params.containsKey(e.getKey())) {
+                        params.put(e.getKey(), e.getValue());
+                    }
+                }
+            }
+
             String action = params.get("action");
             if ("save".equals(action)) {
                 if (params.containsKey("video_quality")) {
@@ -1708,6 +2042,42 @@ public class LocalHttpServer {
                     }
                 }
 
+                // --- Web Access PIN (feature: PIN auth) ---
+                String pinEnabledParam = params.get("pin_auth");
+                String pinNew = params.get("pin_new");
+                String pinConfirm = params.get("pin_confirm");
+                String pinError = null;
+                if (pinNew != null && !pinNew.isEmpty()) {
+                    if (!pinNew.equals(pinConfirm)) {
+                        pinError = "PINs do not match";
+                    } else {
+                        pinError = setPinCode(dbHelper, pinNew);
+                    }
+                }
+                if (pinError != null) {
+                    if ("ajax".equals(params.get("format"))) {
+                        sendResponse(os, 400, pinError, "text/plain; charset=UTF-8");
+                        return;
+                    }
+                    sendRedirect(os, "/settings?saved=false");
+                    return;
+                }
+                if (pinEnabledParam != null) {
+                    boolean wantPin = "on".equals(pinEnabledParam) || "true".equals(pinEnabledParam);
+                    if (wantPin && !hasPinConfigured()) {
+                        if ("ajax".equals(params.get("format"))) {
+                            sendResponse(os, 400, "Set a PIN first", "text/plain; charset=UTF-8");
+                            return;
+                        }
+                        sendRedirect(os, "/settings?saved=false");
+                        return;
+                    }
+                    dbHelper.setSetting(SETTING_PIN_ENABLED, wantPin ? "true" : "false");
+                    if (!wantPin) {
+                        clearAllSessions();
+                    }
+                }
+
                 if ("ajax".equals(params.get("format"))) {
                     sendResponse(os, 200, "OK", "text/plain; charset=UTF-8");
                     return;
@@ -1727,8 +2097,9 @@ public class LocalHttpServer {
             String homeFeedMode = dbHelper.getHomeFeedMode();
             String sbConfig = dbHelper.getSetting("sponsorblock_config", SPONSORBLOCK_DEFAULT_CONFIG);
             boolean saved = "true".equals(params.get("saved"));
+            boolean pinEnabled = "true".equals(dbHelper.getSetting(SETTING_PIN_ENABLED, "false")) && hasPinConfigured();
 
-            String html = HtmlRenderer.renderSettings(0, currentQuality, hideWatched, hideShorts, homeFeedMode, saved, isTv, sbConfig);
+            String html = HtmlRenderer.renderSettings(0, currentQuality, hideWatched, hideShorts, homeFeedMode, saved, isTv, sbConfig, pinEnabled);
             sendResponse(os, 200, html, "text/html; charset=UTF-8");
         }
 
@@ -1840,7 +2211,16 @@ public class LocalHttpServer {
 
         private void sendResponse(OutputStream os, int code, String content, String contentType) throws IOException {
             byte[] bytes = content.getBytes("UTF-8");
-            String status = code == 200 ? "OK" : (code == 404 ? "Not Found" : "Internal Server Error");
+            String status;
+            switch (code) {
+                case 200: status = "OK"; break;
+                case 400: status = "Bad Request"; break;
+                case 401: status = "Unauthorized"; break;
+                case 403: status = "Forbidden"; break;
+                case 404: status = "Not Found"; break;
+                case 429: status = "Too Many Requests"; break;
+                default: status = "Internal Server Error"; break;
+            }
             String response = "HTTP/1.1 " + code + " " + status + "\r\n" +
                     "Content-Type: " + contentType + "\r\n" +
                     "Content-Length: " + bytes.length + "\r\n" +

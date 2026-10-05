@@ -19,6 +19,22 @@ public class RemoteWebSocketServer extends WebSocketServer {
 
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
+        // Respect the Web Access PIN: drop sockets from non-local clients that did
+        // not authenticate over HTTP (browsers automatically carry the session
+        // cookie on the WS upgrade because cookies are not scoped by port).
+        if (LocalHttpServer.isPinAuthActive()) {
+            boolean local = false;
+            try {
+                local = LocalHttpServer.isLocalRequest(conn.getRemoteSocketAddress().getAddress());
+            } catch (Exception ignored) {
+            }
+            if (!local && !LocalHttpServer.isValidSessionToken(
+                    LocalHttpServer.extractSessionToken(handshake.getFieldValue("Cookie")))) {
+                LocalHttpServer.log("WebSocket connection rejected (PIN required): " + conn.getRemoteSocketAddress());
+                conn.close(4401, "PIN required");
+                return;
+            }
+        }
         connections.add(conn);
         LocalHttpServer.log("WebSocket client connected: " + conn.getRemoteSocketAddress());
     }

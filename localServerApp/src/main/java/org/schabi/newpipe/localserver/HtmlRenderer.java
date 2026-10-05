@@ -3060,7 +3060,7 @@ public class HtmlRenderer {
         return sb.toString();
     }
 
-    public static String renderSettings(int serviceId, String currentQuality, boolean hideWatched, boolean hideShorts, String homeFeedMode, boolean saved, boolean isTv, String sponsorblockConfig) {
+    public static String renderSettings(int serviceId, String currentQuality, boolean hideWatched, boolean hideShorts, String homeFeedMode, boolean saved, boolean isTv, String sponsorblockConfig, boolean pinEnabled) {
         StringBuilder sb = new StringBuilder();
         sb.append(getHeaderHtml(serviceId, "", "settings"));
         sb.append("<div class=\"container\">\n")
@@ -3269,6 +3269,53 @@ public class HtmlRenderer {
           .append("        <button type=\"button\" id=\"btn-import-web\" class=\"subscribe-btn\" style=\"background-color: #2e7d32; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; height: 38px; padding: 0 16px; color: white;\">📤 Import JSON</button>\n")
           .append("        <input type=\"file\" id=\"file-import-web\" accept=\".json\" style=\"display: none;\">\n")
           .append("      </div>\n")
+          .append("    </div>\n");
+
+        // --- Security section: Web Access PIN (feature: PIN auth) ---
+        sb.append("    <div class=\"settings-section\">\n")
+          .append("      <h3 class=\"settings-section-title\">Security \u2014 Web Access PIN</h3>\n")
+          .append("      <p class=\"setting-desc\" style=\"margin-bottom: 16px;\">Require a numeric PIN before any device on the Wi-Fi can open this server. The phone running the app stays exempt. External players (VLC, etc.) can append <code>?pin=YOURPIN</code> to a stream URL. After 5 wrong attempts an IP is locked out for 30 seconds.</p>\n")
+          .append("      <div class=\"setting-row\">\n")
+          .append("        <div class=\"setting-label-group\">\n")
+          .append("          <span class=\"setting-label\">Require PIN to access</span>\n")
+          .append("          <span class=\"setting-desc\">Status: ").append(pinEnabled ? "Enabled" : "Disabled").append(". Changing the PIN signs out all connected browsers.</span>\n")
+          .append("        </div>\n")
+          .append("        <label class=\"switch\">\n")
+          .append("          <input type=\"checkbox\" id=\"pin-enabled\" ").append(pinEnabled ? "checked" : "").append(">\n")
+          .append("          <span class=\"slider\"></span>\n")
+          .append("        </label>\n")
+          .append("      </div>\n")
+          .append("      <div class=\"setting-row\">\n")
+          .append("        <div class=\"setting-label-group\">\n")
+          .append("          <span class=\"setting-label\">Set / Change PIN</span>\n")
+          .append("          <span class=\"setting-desc\">4-8 digits. Leave empty to keep the current PIN.</span>\n")
+          .append("        </div>\n")
+          .append("        <div style=\"display:flex; flex-direction:column; gap:8px;\">\n")
+          .append("          <input type=\"password\" id=\"pin-new\" inputmode=\"numeric\" pattern=\"[0-9]*\" maxlength=\"8\" autocomplete=\"off\" placeholder=\"New PIN\" style=\"padding: 8px 16px; border-radius: 8px; border: 1px solid var(--search-input-border); background-color: var(--bg-color); color: var(--text-color); font-family: inherit; font-size: 14px; outline: none; width: 160px; box-sizing: border-box;\">\n")
+          .append("          <input type=\"password\" id=\"pin-confirm\" inputmode=\"numeric\" pattern=\"[0-9]*\" maxlength=\"8\" autocomplete=\"off\" placeholder=\"Confirm PIN\" style=\"padding: 8px 16px; border-radius: 8px; border: 1px solid var(--search-input-border); background-color: var(--bg-color); color: var(--text-color); font-family: inherit; font-size: 14px; outline: none; width: 160px; box-sizing: border-box;\">\n")
+          .append("        </div>\n")
+          .append("      </div>\n")
+          .append("      <button type=\"button\" id=\"pin-save-btn\" class=\"subscribe-btn\" style=\"background-color: var(--logo-color); border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; height: 38px; padding: 0 20px; color: white; margin-top: 4px;\">Save Security Settings</button>\n")
+          .append("      <script>\n")
+          .append("        (function() {\n")
+          .append("            var btn = document.getElementById('pin-save-btn');\n")
+          .append("            if (!btn) return;\n")
+          .append("            btn.addEventListener('click', function() {\n")
+          .append("                var enable = document.getElementById('pin-enabled').checked ? 'on' : 'off';\n")
+          .append("                var pinNew = document.getElementById('pin-new').value.trim();\n")
+          .append("                var pinConfirm = document.getElementById('pin-confirm').value.trim();\n")
+          .append("                if (pinNew && !/^[0-9]{4,8}$/.test(pinNew)) { alert('PIN must be 4-8 digits.'); return; }\n")
+          .append("                var body = 'action=save&format=ajax&pin_auth=' + enable;\n")
+          .append("                if (pinNew) body += '&pin_new=' + encodeURIComponent(pinNew) + '&pin_confirm=' + encodeURIComponent(pinConfirm);\n")
+          .append("                fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })\n")
+          .append("                    .then(function(res) {\n")
+          .append("                        if (res.ok) { alert('Security settings saved. You may need to sign in again with the new PIN.'); window.location.reload(); }\n")
+          .append("                        else return res.text().then(function(t) { alert('Save failed: ' + t); });\n")
+          .append("                    })\n")
+          .append("                    .catch(function() { alert('Save failed.'); });\n")
+          .append("            });\n")
+          .append("        })();\n")
+          .append("      </script>\n")
           .append("    </div>\n")
           .append("  </div>\n")
           .append("</div>\n")
@@ -3307,6 +3354,54 @@ public class HtmlRenderer {
           .append("</script>\n");
 
         return wrapInTemplate("Settings - LocalYouTube", sb.toString(), isTv);
+    }
+
+    /**
+     * PIN entry gate shown to browsers that have not authenticated yet.
+     * Intentionally rendered without the normal navigation so it works as a
+     * lock screen; the shared page template still supplies theme variables.
+     */
+    public static String renderLogin(String error, String next, int lockoutSeconds) {
+        String safeNext = (next == null || next.isEmpty()) ? "/" : next;
+        safeNext = safeNext.replace("&", "&amp;").replace("\"", "&quot;");
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div class=\"container\" style=\"display:flex; justify-content:center; align-items:flex-start; padding-top:8vh;\">\n")
+          .append("  <div class=\"settings-card\" style=\"max-width: 380px; width: 90%; text-align:center;\">\n")
+          .append("    <svg viewBox=\"0 0 24 24\" width=\"42\" height=\"42\" fill=\"#FF0000\" style=\"display:inline-block; vertical-align:middle;\"><path d=\"M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z\"/></svg>\n")
+          .append("    <h1 class=\"settings-title\" style=\"margin-top:8px; font-size:22px;\">LocalYouTube</h1>\n")
+          .append("    <p class=\"setting-desc\" style=\"margin-bottom:18px;\">This server is protected by a PIN.<br>Enter your Web Access PIN to continue.</p>\n");
+        if (error != null && !error.isEmpty()) {
+            String safeError = error.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+            sb.append("    <div style=\"background: rgba(229,57,53,0.12); color: #e53935; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 14px;\">")
+              .append(safeError)
+              .append("</div>\n");
+        }
+        sb.append("    <form method=\"POST\" action=\"/login\">\n")
+          .append("      <input type=\"hidden\" name=\"next\" value=\"").append(safeNext).append("\">\n")
+          .append("      <input type=\"password\" name=\"pin\" inputmode=\"numeric\" pattern=\"[0-9]*\" maxlength=\"8\" autocomplete=\"off\" placeholder=\"PIN\" required\n")
+          .append("             style=\"width: 100%; box-sizing: border-box; text-align:center; letter-spacing: 8px; font-size: 22px; padding: 12px; border-radius: 12px; border: 1px solid var(--search-input-border); background-color: var(--bg-color); color: var(--text-color); outline: none;\">\n")
+          .append("      <button type=\"submit\" id=\"pin-submit\" class=\"subscribe-btn\" style=\"background-color: var(--logo-color); border: none; cursor: pointer; width: 100%; margin-top: 14px; height: 44px; color: white; font-size: 15px;\">Unlock</button>\n")
+          .append("    </form>\n");
+        if (lockoutSeconds > 0) {
+            sb.append("    <script>\n")
+              .append("        (function() {\n")
+              .append("            var left = ").append(Math.max(1, lockoutSeconds)).append(";\n")
+              .append("            var btn = document.getElementById('pin-submit');\n")
+              .append("            var input = document.getElementsByName('pin')[0];\n")
+              .append("            btn.disabled = true;\n")
+              .append("            if (input) input.disabled = true;\n")
+              .append("            btn.textContent = 'Locked (' + left + 's)';\n")
+              .append("            var timer = setInterval(function() {\n")
+              .append("                left--;\n")
+              .append("                if (left <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = 'Unlock'; if (input) input.disabled = false; return; }\n")
+              .append("                btn.textContent = 'Locked (' + left + 's)';\n")
+              .append("            }, 1000);\n")
+              .append("        })();\n")
+              .append("    </script>\n");
+        }
+        sb.append("  </div>\n")
+          .append("</div>\n");
+        return wrapInTemplate("Sign in - LocalYouTube", sb.toString(), false);
     }
 
     private static String escapeJs(String str) {
